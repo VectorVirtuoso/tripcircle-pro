@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+/* Activates our dark mode toggle */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* This forces the app to stretch edge-to-edge! */
+html, body, #root {
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  background-color: #0f172a; /* Default dark background behind everything */
+}
