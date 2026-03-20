@@ -11,6 +11,11 @@ const tripSchema = new mongoose.Schema({
   members: [{ 
     type: mongoose.Schema.Types.ObjectId, 
     ref: 'User' 
+  }],
+  packingList: [{
+    item: { type: String, required: true },
+    isPacked: { type: Boolean, default: false },
+    packedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' } // Tracks who packed it
   }]
 }, { timestamps: true });
 

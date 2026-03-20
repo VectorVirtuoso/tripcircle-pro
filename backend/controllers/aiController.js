@@ -63,3 +63,54 @@ exports.generateItinerary = async (req, res) => {
     res.status(500).json({ message: "Failed to generate itinerary. Please try again." });
   }
 };
+
+// @desc    Scan a receipt image and extract details using Gemini Vision
+// @route   POST /api/ai/scan
+exports.scanReceipt = async (req, res) => {
+  try {
+    const { imageBase64, mimeType } = req.body;
+
+    if (!imageBase64) {
+      return res.status(400).json({ message: "No image provided." });
+    }
+
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-2.5-flash",
+      generationConfig: { responseMimeType: "application/json" }
+    });
+
+    const prompt = `
+      Analyze this receipt image carefully. Extract the name of the establishment (or a short, logical description of the expense) as the 'title'. Extract the final total amount paid as a number 'amount'.
+      
+      Return the response STRICTLY using this exact JSON schema:
+      {
+        "title": "String (e.g., Starbucks)",
+        "amount": Number (e.g., 450)
+      }
+    `;
+
+    // Gemini requires the image formatted like this
+    const imageParts = [
+      {
+        inlineData: {
+          data: imageBase64,
+          mimeType: mimeType
+        }
+      }
+    ];
+
+    const result = await model.generateContent([prompt, ...imageParts]);
+    const responseText = result.response.text();
+    
+    // THE MAGIC FIX: Strip away any Markdown formatting Gemini tries to add!
+    const cleanText = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
+    
+    // Now it is perfectly safe to parse
+    const receiptData = JSON.parse(cleanText);
+
+    res.status(200).json(receiptData);
+  } catch (error) {
+    console.error("Receipt Scan Error:", error);
+    res.status(500).json({ message: "Failed to scan receipt. Please try again." });
+  }
+};

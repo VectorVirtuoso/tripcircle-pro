@@ -1,17 +1,17 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Loader2, CheckSquare, Square } from "lucide-react";
+import { X, Loader2, CheckSquare, Square, Camera, Sparkles } from "lucide-react";
 
 const AddExpenseModal = ({ isOpen, onClose, trip, onExpenseAdded, socket }) => {
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
   const [payerId, setPayerId] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  // NEW: State to track who is splitting this specific expense
+  const [isScanning, setIsScanning] = useState(false); // NEW: Track AI scanning state
   const [selectedSplitters, setSelectedSplitters] = useState([]);
+  
+  const fileInputRef = useRef(null); // NEW: Reference to the hidden file input
 
-  // Reset the form and select everyone by default when the modal opens
   useEffect(() => {
     if (isOpen && trip) {
       setTitle("");
@@ -23,37 +23,67 @@ const AddExpenseModal = ({ isOpen, onClose, trip, onExpenseAdded, socket }) => {
 
   if (!isOpen || !trip) return null;
 
-  // Toggle individual checkboxes
   const toggleSplitter = (memberId) => {
-    setSelectedSplitters(prev => 
-      prev.includes(memberId) 
-        ? prev.filter(id => id !== memberId) 
-        : [...prev, memberId]
-    );
+    setSelectedSplitters(prev => prev.includes(memberId) ? prev.filter(id => id !== memberId) : [...prev, memberId]);
   };
 
-  // Quick select/deselect all
   const toggleAll = () => {
     if (selectedSplitters.length === trip.members.length) {
-      setSelectedSplitters([]); // Deselect all
+      setSelectedSplitters([]);
     } else {
-      setSelectedSplitters(trip.members.map(m => m._id)); // Select all
+      setSelectedSplitters(trip.members.map(m => m._id));
     }
+  };
+
+  // NEW: Handle the image upload and AI scanning
+  const handleScanReceipt = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsScanning(true);
+
+    // Convert image to Base64 string
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onloadend = async () => {
+      // Remove the "data:image/jpeg;base64," prefix for the backend
+      const base64String = reader.result.split(',')[1];
+      const mimeType = file.type;
+
+      try {
+        const response = await fetch("http://localhost:5000/api/ai/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64: base64String, mimeType })
+        });
+
+        if (!response.ok) throw new Error("Failed to scan");
+
+        const data = await response.json();
+        
+        // AUTO-FILL THE FORM!
+        if (data.title) setTitle(data.title);
+        if (data.amount) setAmount(data.amount.toString());
+        
+      } catch (error) {
+        console.error("Scan failed:", error);
+        alert("Gemini couldn't read the receipt clearly. Try another photo!");
+      } finally {
+        setIsScanning(false);
+        e.target.value = null; // Reset file input so you can scan the same file again if needed
+      }
+    };
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    // Validation to ensure at least one person is selected
     if (selectedSplitters.length === 0) {
       alert("Please select at least one person to split the cost with!");
       return;
     }
 
     setIsSubmitting(true);
-
     const amountNum = parseFloat(amount);
-    // NEW: Divide the amount ONLY by the number of selected people
     const splitAmount = amountNum / selectedSplitters.length; 
 
     const expensePayload = {
@@ -61,7 +91,6 @@ const AddExpenseModal = ({ isOpen, onClose, trip, onExpenseAdded, socket }) => {
       title: title,
       amount: amountNum,
       paidBy: payerId || trip.members[0]._id,
-      // NEW: Only create debt objects for the selected people
       splitAmong: selectedSplitters.map(userId => ({
         user: userId,
         amountOwed: splitAmount
@@ -100,6 +129,29 @@ const AddExpenseModal = ({ isOpen, onClose, trip, onExpenseAdded, socket }) => {
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Add New Expense</h2>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors cursor-pointer bg-gray-100 dark:bg-gray-800 p-2 rounded-full">
               <X size={20} />
+            </button>
+          </div>
+
+          {/* NEW: AI Scan Button */}
+          <div className="mb-4 shrink-0">
+            <input 
+              type="file" 
+              accept="image/*" 
+              ref={fileInputRef} 
+              className="hidden" 
+              onChange={handleScanReceipt} 
+            />
+            <button 
+              type="button"
+              onClick={() => fileInputRef.current.click()}
+              disabled={isScanning}
+              className="w-full flex justify-center items-center gap-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-semibold py-3 rounded-xl hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 shadow-md cursor-pointer disabled:opacity-70"
+            >
+              {isScanning ? (
+                <><Loader2 className="animate-spin" size={20} /> Analyzing Receipt...</>
+              ) : (
+                <><Camera size={20} /> <Sparkles size={16} /> Auto-fill with AI Scanner</>
+              )}
             </button>
           </div>
 
@@ -144,7 +196,6 @@ const AddExpenseModal = ({ isOpen, onClose, trip, onExpenseAdded, socket }) => {
               </div>
             </div>
 
-            {/* NEW: Custom Splitter Checklist */}
             <div className="bg-gray-50 dark:bg-[#0f172a] p-4 rounded-2xl border border-gray-200 dark:border-gray-700">
               <div className="flex justify-between items-center mb-3">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Split among</label>

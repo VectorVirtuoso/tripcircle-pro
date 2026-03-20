@@ -17,7 +17,8 @@ const app = express();
 
 // Middleware
 app.use(cors()); // Allows our frontend to communicate with our backend
-app.use(express.json()); // Allows us to parse JSON data in the request body
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // API Routes
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/trips', require('./routes/tripRoutes'));

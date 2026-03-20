@@ -49,3 +49,43 @@ exports.getUserTrips = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// @desc    Add an item to the packing list
+// @route   POST /api/trips/:id/packing
+exports.addPackingItem = async (req, res) => {
+  try {
+    const trip = await Trip.findById(req.params.id);
+    if (!trip) return res.status(404).json({ message: 'Trip not found' });
+
+    trip.packingList.push({
+      item: req.body.item,
+      isPacked: false
+    });
+
+    await trip.save();
+    res.status(200).json(trip.packingList);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Toggle a packing list item (Packed/Unpacked)
+// @route   PUT /api/trips/:id/packing/:itemId
+exports.togglePackingItem = async (req, res) => {
+  try {
+    const trip = await Trip.findById(req.params.id);
+    if (!trip) return res.status(404).json({ message: 'Trip not found' });
+
+    const item = trip.packingList.id(req.params.itemId);
+    if (!item) return res.status(404).json({ message: 'Item not found' });
+
+    // Flip the boolean and record who packed it
+    item.isPacked = !item.isPacked;
+    item.packedBy = item.isPacked ? req.body.userId : null;
+
+    await trip.save();
+    res.status(200).json(trip.packingList);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
