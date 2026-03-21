@@ -1,4 +1,5 @@
 const Expense = require('../models/Expense');
+const mongoose = require('mongoose');
 
 // @desc    Create a new expense
 // @route   POST /api/expenses
@@ -12,14 +13,43 @@ exports.createExpense = async (req, res) => {
   }
 };
 
-// @desc    Get expenses for a specific trip
+// @desc    Get all expenses for a trip (with Pagination!)
+// @route   GET /api/expenses/:tripId
+// @desc    Get all expenses for a trip (with Pagination & True Total)
 // @route   GET /api/expenses/:tripId
 exports.getTripExpenses = async (req, res) => {
   try {
-    const expenses = await Expense.find({ tripId: req.params.tripId })
-      .populate('paidBy', 'name email')
-      .populate('splitAmong.user', 'name email');
-    res.status(200).json(expenses);
+    const { tripId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const expenses = await Expense.find({ tripId })
+      .populate('paidBy', 'name')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const totalExpenses = await Expense.countDocuments({ tripId });
+
+    // NEW: Calculate the TRUE total spend using MongoDB Aggregation
+    const mongoose = require('mongoose');
+    const totalSpendAgg = await Expense.aggregate([
+      { $match: { tripId: new mongoose.Types.ObjectId(tripId) } },
+      { $group: { _id: null, totalAmount: { $sum: "$amount" } } }
+    ]);
+    
+    // If the array has data, grab the total. Otherwise, it's 0.
+    const trueTotalSpend = totalSpendAgg.length > 0 ? totalSpendAgg[0].totalAmount : 0;
+
+    res.status(200).json({
+      expenses, 
+      totalSpend: trueTotalSpend, // Send the true total to React!
+      currentPage: page,
+      totalPages: Math.ceil(totalExpenses / limit),
+      hasMore: page * limit < totalExpenses
+    });
+    
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

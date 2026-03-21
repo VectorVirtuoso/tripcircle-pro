@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Plus, Receipt, ArrowRight, Activity, Sun, Moon, ListTodo, CheckSquare, Square, UserPlus, X, ImagePlus, UploadCloud, Loader2 } from "lucide-react";
+import { ArrowLeft, Plus, Receipt, ArrowRight, Activity, Sun, Moon, ListTodo, CheckSquare, Square, UserPlus, X, ImagePlus, UploadCloud, Loader2, FileDown } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import AddExpenseModal from "../components/AddExpenseModal";
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip } from 'chart.js';
@@ -18,7 +18,13 @@ const TripDetails = () => {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [trip, setTrip] = useState(null);
+  
+  // NEW: Pagination State for Expenses
   const [expenses, setExpenses] = useState([]);
+  const [expensePage, setExpensePage] = useState(1);
+  const [hasMoreExpenses, setHasMoreExpenses] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
   const [balances, setBalances] = useState({});
   const [settlements, setSettlements] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -30,9 +36,12 @@ const TripDetails = () => {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteError, setInviteError] = useState("");
 
-  // NEW: Trip Vault State & Refs
   const [isUploadingVault, setIsUploadingVault] = useState(false);
   const vaultInputRef = useRef(null);
+
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const [totalSpend, setTotalSpend] = useState(0); // NEW
 
   useEffect(() => {
     const newSocket = io("http://localhost:5000");
@@ -49,9 +58,15 @@ const TripDetails = () => {
       if (currentTrip) {
         setTrip(currentTrip);
 
-        const expenseRes = await fetch(`http://localhost:5000/api/expenses/${currentTrip._id}`);
+        // UPDATED: Fetch Page 1 of expenses
+        const expenseRes = await fetch(`http://localhost:5000/api/expenses/${currentTrip._id}?page=1&limit=10`);
         const expenseData = await expenseRes.json();
-        setExpenses(expenseData);
+        
+        // We now extract the array from the new paginated object!
+        setExpenses(expenseData.expenses || []);
+        setHasMoreExpenses(expenseData.hasMore);
+        setExpensePage(1);
+        setTotalSpend(expenseData.totalSpend || 0);
 
         const settleRes = await fetch(`http://localhost:5000/api/settlements/${currentTrip._id}`);
         const settleData = await settleRes.json();
@@ -62,6 +77,27 @@ const TripDetails = () => {
       console.error("Error fetching data:", error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // NEW: Infinite Scroll Fetch Function
+  const loadMoreExpenses = async () => {
+    if (isLoadingMore || !hasMoreExpenses) return;
+    setIsLoadingMore(true);
+    
+    try {
+      const nextPage = expensePage + 1;
+      const res = await fetch(`http://localhost:5000/api/expenses/${trip._id}?page=${nextPage}&limit=10`);
+      const data = await res.json();
+      
+      // Append the new 10 items to the existing array
+      setExpenses(prev => [...prev, ...(data.expenses || [])]);
+      setHasMoreExpenses(data.hasMore);
+      setExpensePage(nextPage);
+    } catch (error) {
+      console.error("Failed to load more expenses:", error);
+    } finally {
+      setIsLoadingMore(false);
     }
   };
 
@@ -88,17 +124,14 @@ const TripDetails = () => {
   const handleInviteMember = async (e) => {
     e.preventDefault();
     setInviteError("");
-
     try {
       const res = await fetch(`http://localhost:5000/api/trips/${trip._id}/members`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ adminId: user._id, newMemberEmail: inviteEmail })
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to invite member");
-
       setInviteEmail("");
       setIsInviteModalOpen(false);
       fetchTripData(); 
@@ -111,7 +144,6 @@ const TripDetails = () => {
   const handleAddPackingItem = async (e) => {
     e.preventDefault();
     if (!newItem.trim()) return;
-
     try {
       const res = await fetch(`http://localhost:5000/api/trips/${trip._id}/packing`, {
         method: "POST",
@@ -144,67 +176,70 @@ const TripDetails = () => {
     }
   };
 
-  // NEW: Trip Vault Upload Handler
   const handleVaultUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
     setIsUploadingVault(true);
-
-    // Pack the file into FormData (crucial for sending files in React!)
     const formData = new FormData();
     formData.append("file", file);
     formData.append("userId", user._id);
-
     try {
-      const res = await fetch(`http://localhost:5000/api/trips/${trip._id}/vault`, {
-        method: "POST",
-        body: formData // Note: We do NOT set headers here! The browser handles the multipart boundary.
-      });
-
+      const res = await fetch(`http://localhost:5000/api/trips/${trip._id}/vault`, { method: "POST", body: formData });
       if (res.ok) {
-        fetchTripData(); // Instantly fetch the new image URL
-        if (socket) socket.emit("expense_added", trip._id); // Tell other users to refresh
+        fetchTripData(); 
+        if (socket) socket.emit("expense_added", trip._id); 
       } else {
         throw new Error("Upload failed");
       }
     } catch (error) {
       console.error("Vault Upload Error:", error);
-      alert("Failed to upload memory. Please try again.");
+      alert("Failed to upload memory.");
     } finally {
       setIsUploadingVault(false);
-      e.target.value = null; // Reset the input so you can upload the same file again if needed
+      e.target.value = null; 
+    }
+  };
+
+  const handleDownloadReport = async () => {
+    try {
+      setIsDownloading(true);
+      const res = await fetch(`http://localhost:5000/api/trips/${trip._id}/download`);
+      if (!res.ok) throw new Error("Failed to generate report");
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${trip.name.replace(/\s+/g, '_')}_Report.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Download error:", error);
+      alert("Failed to download the report.");
+    } finally {
+      setIsDownloading(false);
     }
   };
 
   if (isLoading) return <div className="min-h-screen bg-gray-50 dark:bg-[#0f172a] text-gray-900 dark:text-white flex items-center justify-center">Loading Data...</div>;
   if (!trip) return <div className="min-h-screen bg-gray-50 dark:bg-[#0f172a] text-gray-900 dark:text-white flex items-center justify-center">No trip found!</div>;
 
-  const totalSpend = expenses.reduce((sum, exp) => sum + exp.amount, 0);
   const getUserName = (id) => trip.members.find(m => m._id === id)?.name || 'Unknown';
 
   const chartData = {
     labels: trip.members.map(m => m.name),
-    datasets: [
-      {
-        data: trip.members.map(m => balances[m._id] || 0),
-        backgroundColor: trip.members.map(m => (balances[m._id] || 0) >= 0 ? '#10b981' : '#f43f5e'),
-        borderRadius: 8,
-        borderSkipped: false,
-      }
-    ]
+    datasets: [{
+      data: trip.members.map(m => balances[m._id] || 0),
+      backgroundColor: trip.members.map(m => (balances[m._id] || 0) >= 0 ? '#10b981' : '#f43f5e'),
+      borderRadius: 8, borderSkipped: false,
+    }]
   };
 
   const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    scales: {
-      y: { display: false },
-      x: { grid: { display: false }, ticks: { color: theme === 'dark' ? '#94a3b8' : '#64748b', font: { family: 'Plus Jakarta Sans', size: 14 } } }
-    },
-    plugins: {
-      tooltip: { callbacks: { label: (context) => ` ₹${Math.abs(context.raw)} ${context.raw >= 0 ? 'Owed' : 'Owes'}` } }
-    }
+    responsive: true, maintainAspectRatio: false,
+    scales: { y: { display: false }, x: { grid: { display: false }, ticks: { color: theme === 'dark' ? '#94a3b8' : '#64748b', font: { family: 'Plus Jakarta Sans', size: 14 } } } },
+    plugins: { tooltip: { callbacks: { label: (context) => ` ₹${Math.abs(context.raw)} ${context.raw >= 0 ? 'Owed' : 'Owes'}` } } }
   };
 
   return (
@@ -233,6 +268,12 @@ const TripDetails = () => {
           <button onClick={toggleTheme} className="p-2 text-gray-500 hover:text-[#10b981] dark:text-gray-400 dark:hover:text-[#10b981] bg-white dark:bg-[#1e293b] rounded-full transition-colors cursor-pointer border border-gray-200 dark:border-transparent shadow-sm dark:shadow-none" title="Toggle Theme">
             {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
           </button>
+          
+          <button onClick={handleDownloadReport} disabled={isDownloading} className="flex items-center gap-2 bg-white dark:bg-[#1e293b] text-gray-700 dark:text-gray-200 font-semibold py-2 px-4 rounded-full border border-gray-200 dark:border-gray-700 hover:border-[#8b5cf6] hover:text-[#8b5cf6] dark:hover:border-[#8b5cf6] dark:hover:text-[#8b5cf6] transition-all duration-300 cursor-pointer shadow-sm dark:shadow-none disabled:opacity-50 disabled:cursor-not-allowed">
+            {isDownloading ? <Loader2 size={18} className="animate-spin" /> : <FileDown size={18} />}
+            <span className="hidden sm:inline">{isDownloading ? "Generating..." : "Export PDF"}</span>
+          </button>
+
           <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 bg-[#10b981] text-white dark:text-gray-900 font-semibold py-2 px-5 rounded-full hover:bg-[#0ea5e9] hover:text-white transition-all duration-300 cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.3)]">
             <Plus size={18} />
             <span className="hidden sm:inline">Add Expense</span>
@@ -285,7 +326,7 @@ const TripDetails = () => {
           )}
         </div>
 
-        {/* Column 2: Recent Expenses */}
+        {/* Column 2: Recent Expenses with INFINITE SCROLL */}
         <div>
           <h2 className="text-xl font-semibold mb-4 border-b border-gray-200 dark:border-gray-800 pb-2 text-gray-900 dark:text-white">Recent Expenses</h2>
           {expenses.length === 0 ? (
@@ -294,7 +335,16 @@ const TripDetails = () => {
               <p>No expenses yet.</p>
             </div>
           ) : (
-            <div className="space-y-3 h-80 overflow-y-auto pr-2 custom-scrollbar">
+            <div 
+              className="space-y-3 h-80 overflow-y-auto pr-2 custom-scrollbar"
+              onScroll={(e) => {
+                const { scrollTop, clientHeight, scrollHeight } = e.target;
+                // If user scrolls to the bottom (within 10 pixels), trigger loadMore!
+                if (scrollHeight - scrollTop <= clientHeight + 10) {
+                  loadMoreExpenses();
+                }
+              }}
+            >
               {expenses.map((expense) => (
                 <div key={expense._id} className="bg-white dark:bg-[#1e293b] p-4 rounded-xl border border-gray-200 dark:border-gray-800 flex justify-between items-center shadow-sm dark:shadow-none">
                   <div>
@@ -304,6 +354,13 @@ const TripDetails = () => {
                   <div className="font-semibold text-gray-900 dark:text-white">₹{expense.amount.toLocaleString()}</div>
                 </div>
               ))}
+              
+              {/* Spinner shows up at the bottom while loading more */}
+              {isLoadingMore && (
+                <div className="flex justify-center py-4">
+                  <Loader2 className="animate-spin text-[#10b981]" size={24} />
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -340,7 +397,7 @@ const TripDetails = () => {
         </div>
       </div>
 
-      {/* NEW: THE TRIP VAULT GALLERY */}
+      {/* THE TRIP VAULT GALLERY */}
       <div className="mt-8 pt-8 border-t border-gray-200 dark:border-gray-800">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold flex items-center gap-2 text-gray-900 dark:text-white">
@@ -348,24 +405,13 @@ const TripDetails = () => {
             Trip Vault
           </h2>
 
-          <input 
-            type="file" 
-            accept="image/*,application/pdf" 
-            ref={vaultInputRef} 
-            className="hidden" 
-            onChange={handleVaultUpload} 
-          />
-          <button 
-            onClick={() => vaultInputRef.current.click()}
-            disabled={isUploadingVault}
-            className="flex items-center gap-2 bg-[#8b5cf6] hover:bg-[#7c3aed] text-white font-semibold py-2 px-5 rounded-xl transition-all shadow-md cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
-          >
+          <input type="file" accept="image/*,application/pdf" ref={vaultInputRef} className="hidden" onChange={handleVaultUpload} />
+          <button onClick={() => vaultInputRef.current.click()} disabled={isUploadingVault} className="flex items-center gap-2 bg-[#8b5cf6] hover:bg-[#7c3aed] text-white font-semibold py-2 px-5 rounded-xl transition-all shadow-md cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed">
             {isUploadingVault ? <Loader2 className="animate-spin" size={18} /> : <UploadCloud size={18} />}
             <span>{isUploadingVault ? 'Uploading...' : 'Upload Memory'}</span>
           </button>
         </div>
 
-        {/* The Photo Grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
           {(!trip.vault || trip.vault.length === 0) ? (
             <div className="col-span-full py-16 text-center bg-white dark:bg-[#1e293b]/30 rounded-2xl border border-dashed border-gray-300 dark:border-gray-800">
@@ -375,24 +421,14 @@ const TripDetails = () => {
             </div>
           ) : (
             trip.vault.map((file, idx) => (
-              <a 
-                key={idx} 
-                href={file.imageUrl} 
-                target="_blank" 
-                rel="noreferrer"
-                className="block overflow-hidden rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 group"
-              >
+              <a key={idx} href={file.imageUrl} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 group">
                 {file.imageUrl.endsWith('.pdf') ? (
                   <div className="w-full h-40 flex flex-col items-center justify-center text-gray-500 hover:text-[#8b5cf6] transition-colors">
                     <Receipt size={40} className="mb-2" />
                     <span className="text-xs font-semibold">View PDF Document</span>
                   </div>
                 ) : (
-                  <img 
-                    src={file.imageUrl} 
-                    alt="Trip memory" 
-                    className="w-full h-40 object-cover group-hover:scale-110 transition-transform duration-500" 
-                  />
+                  <img src={file.imageUrl} alt="Trip memory" className="w-full h-40 object-cover group-hover:scale-110 transition-transform duration-500" />
                 )}
               </a>
             ))

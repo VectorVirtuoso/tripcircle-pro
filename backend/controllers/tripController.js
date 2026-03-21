@@ -1,3 +1,5 @@
+const PDFDocument = require('pdfkit');
+const Expense = require('../models/Expense'); // Make sure this path matches your setup!
 const Trip = require('../models/Trip');
 const User = require('../models/User');
 
@@ -192,5 +194,77 @@ exports.uploadToVault = async (req, res) => {
   } catch (error) {
     console.error("Vault Upload Error:", error);
     res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Generate and download a PDF Trip Report
+// @route   GET /api/trips/:id/download
+exports.downloadTripReport = async (req, res) => {
+  try {
+    // 1. Fetch the trip and populate the member names
+    const trip = await Trip.findById(req.params.id).populate('members', 'name email');
+    if (!trip) return res.status(404).json({ message: 'Trip not found' });
+
+    // 2. Fetch all expenses for this trip
+    const expenses = await Expense.find({ tripId: trip._id }).populate('paidBy', 'name');
+
+    // 3. Initialize the PDF Document
+    const doc = new PDFDocument({ margin: 50 });
+
+    // 4. Tell the browser to expect a file download, not JSON!
+    res.setHeader('Content-disposition', `attachment; filename="${trip.name.replace(/\s+/g, '_')}_Report.pdf"`);
+    res.setHeader('Content-type', 'application/pdf');
+
+    // 5. Pipe the PDF drawing directly to the user's browser response
+    doc.pipe(res);
+
+    // --- START DRAWING THE PDF ---
+
+    // Title Section
+    doc.fontSize(24).font('Helvetica-Bold').text(`${trip.name} - Trip Report`, { align: 'center' });
+    doc.moveDown();
+    doc.fontSize(14).font('Helvetica').text(`Destination: ${trip.destination}`, { align: 'center' });
+    doc.text(`Date Generated: ${new Date().toLocaleDateString()}`, { align: 'center' });
+    doc.moveDown(2);
+
+    // Members Section
+    doc.fontSize(18).font('Helvetica-Bold').text('Trip Members');
+    doc.moveDown(0.5);
+    doc.fontSize(12).font('Helvetica');
+    trip.members.forEach(m => doc.text(`• ${m.name} (${m.email})`));
+    doc.moveDown(2);
+
+    // Expense Ledger Section
+    doc.fontSize(18).font('Helvetica-Bold').text('Expense Ledger');
+    doc.moveDown(0.5);
+
+    let totalSpend = 0;
+
+    if (expenses.length === 0) {
+      doc.fontSize(12).font('Helvetica-Oblique').text('No expenses recorded for this trip.');
+    } else {
+      expenses.forEach((exp, i) => {
+        totalSpend += exp.amount;
+        doc.fontSize(12).font('Helvetica-Bold').text(`${i + 1}. ${exp.title}`);
+        doc.font('Helvetica').text(`   Amount: Rs. ${exp.amount.toFixed(2)}`);
+        doc.text(`   Paid By: ${exp.paidBy?.name || 'Unknown'}`);
+        doc.moveDown(0.5);
+      });
+    }
+
+    // Grand Total Footer
+    doc.moveDown();
+    doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke(); // Draw a separator line
+    doc.moveDown();
+    doc.fontSize(16).font('Helvetica-Bold').text(`Total Group Spend: Rs. ${totalSpend.toFixed(2)}`, { align: 'right' });
+
+    // 6. Finalize the document (this triggers the final download to the client)
+    doc.end();
+
+  } catch (error) {
+    console.error("PDF Generation Error:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ message: 'Failed to generate PDF report' });
+    }
   }
 };
