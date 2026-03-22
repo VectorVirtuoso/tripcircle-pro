@@ -2,6 +2,7 @@ const PDFDocument = require('pdfkit');
 const Expense = require('../models/Expense'); // Make sure this path matches your setup!
 const Trip = require('../models/Trip');
 const User = require('../models/User');
+const redisClient = require('../config/redis');
 
 // @desc    Create a new trip
 // @route   POST /api/trips
@@ -9,50 +10,68 @@ const User = require('../models/User');
 // @route   POST /api/trips
 // @desc    Create a new trip (with Mapbox Geocoding & Invites)
 // @route   POST /api/trips
+// @desc    Create a new trip (with Mapbox Geocoding, Invites, & Redis Caching!)
+// @route   POST /api/trips
 exports.createTrip = async (req, res) => {
   try {
-    // 1. We now grab memberEmails from the incoming request!
     const { name, destination, adminId, memberEmails } = req.body;
 
-    // 2. Fetch the exact GPS coordinates from Mapbox
     let tripCoordinates = { lat: 0, lng: 0 };
+
     if (destination && process.env.MAPBOX_ACCESS_TOKEN) {
       try {
-        const geoResponse = await fetch(
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(destination)}.json?access_token=${process.env.MAPBOX_ACCESS_TOKEN}&limit=1`
-        );
-        const geoData = await geoResponse.json();
+        // 1. Create a standardized Redis Key (e.g., "geocode:goa, india")
+        const cacheKey = `geocode:${destination.toLowerCase().trim()}`;
 
-        if (geoData.features && geoData.features.length > 0) {
-          const [lng, lat] = geoData.features[0].center;
-          tripCoordinates = { lat, lng };
+        // 2. Try to pull the coordinates from RAM (The Cache)
+        const cachedCoords = await redisClient.get(cacheKey);
+
+        if (cachedCoords) {
+          // ⚡ CACHE HIT: We have it! Skip the API call entirely.
+          console.log(`⚡ REDIS CACHE HIT: Instantly loaded coordinates for "${destination}"`);
+          tripCoordinates = JSON.parse(cachedCoords);
+        } else {
+          // 🐢 CACHE MISS: We don't have it. Call Mapbox over the internet.
+          console.log(`🐢 CACHE MISS: Fetching Mapbox API for "${destination}"`);
+          
+          const geoResponse = await fetch(
+            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(destination)}.json?access_token=${process.env.MAPBOX_ACCESS_TOKEN}&limit=1`
+          );
+          const geoData = await geoResponse.json();
+
+          if (geoData.features && geoData.features.length > 0) {
+            const [lng, lat] = geoData.features[0].center;
+            tripCoordinates = { lat, lng };
+
+            // 3. Save the new coordinates to Redis so we never have to ask Mapbox again!
+            // We use setEx to make it expire after 30 days (2,592,000 seconds)
+            await redisClient.setEx(cacheKey, 2592000, JSON.stringify(tripCoordinates));
+            console.log(`💾 SAVED TO REDIS: Cached coordinates for "${destination}"`);
+          }
         }
       } catch (geoError) {
-        console.error("Geocoding Error:", geoError);
+        console.error("Geocoding/Redis Error:", geoError);
+        // We catch errors gracefully so the trip still creates even if Mapbox or Redis goes down
       }
     }
 
-    // 3. NEW: Convert the array of emails into an array of real User IDs
-    let memberIds = [adminId]; // Always default to at least the admin
+    // 4. Convert email array into real User IDs
+    let memberIds = [adminId]; 
     if (memberEmails && memberEmails.length > 0) {
-      // Ask MongoDB to find every user whose email is in our list
       const foundUsers = await User.find({ email: { $in: memberEmails } });
-      
-      // Extract just their _id properties
       memberIds = foundUsers.map(user => user._id);
       
-      // Safety check: ensure the admin is definitely in this list
       if (!memberIds.some(id => id.toString() === adminId.toString())) {
         memberIds.push(adminId);
       }
     }
 
-    // 4. Save the trip with the fully populated members list!
+    // 5. Save the trip to MongoDB
     const newTrip = new Trip({
       name,
       destination,
       admin: adminId, 
-      members: memberIds, // <-- We use our newly built array here!
+      members: memberIds,
       coordinates: tripCoordinates
     });
 
