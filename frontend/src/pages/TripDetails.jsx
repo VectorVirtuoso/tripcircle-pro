@@ -44,14 +44,14 @@ const TripDetails = () => {
   const [totalSpend, setTotalSpend] = useState(0); // NEW
 
   useEffect(() => {
-    const newSocket = io("http://localhost:5000");
+    const newSocket = io("https://tripcircle-backend.onrender.com");
     setSocket(newSocket);
     return () => newSocket.close();
   }, []);
 
   const fetchTripData = async () => {
     try {
-      const tripRes = await fetch("http://localhost:5000/api/trips");
+      const tripRes = await fetch("https://tripcircle-backend.onrender.com/api/trips");
       const tripsData = await tripRes.json();
       const currentTrip = tripsData.find(t => t._id === id) || tripsData[tripsData.length - 1]; 
       
@@ -59,7 +59,7 @@ const TripDetails = () => {
         setTrip(currentTrip);
 
         // UPDATED: Fetch Page 1 of expenses
-        const expenseRes = await fetch(`http://localhost:5000/api/expenses/${currentTrip._id}?page=1&limit=10`);
+        const expenseRes = await fetch(`https://tripcircle-backend.onrender.com/api/expenses/${currentTrip._id}?page=1&limit=10`);
         const expenseData = await expenseRes.json();
         
         // We now extract the array from the new paginated object!
@@ -68,7 +68,7 @@ const TripDetails = () => {
         setExpensePage(1);
         setTotalSpend(expenseData.totalSpend || 0);
 
-        const settleRes = await fetch(`http://localhost:5000/api/settlements/${currentTrip._id}`);
+        const settleRes = await fetch(`https://tripcircle-backend.onrender.com/api/settlements/${currentTrip._id}`);
         const settleData = await settleRes.json();
         setBalances(settleData.netBalances);
         setSettlements(settleData.optimizedTransactions);
@@ -87,7 +87,7 @@ const TripDetails = () => {
     
     try {
       const nextPage = expensePage + 1;
-      const res = await fetch(`http://localhost:5000/api/expenses/${trip._id}?page=${nextPage}&limit=10`);
+      const res = await fetch(`https://tripcircle-backend.onrender.com/api/expenses/${trip._id}?page=${nextPage}&limit=10`);
       const data = await res.json();
       
       // Append the new 10 items to the existing array
@@ -125,7 +125,7 @@ const TripDetails = () => {
     e.preventDefault();
     setInviteError("");
     try {
-      const res = await fetch(`http://localhost:5000/api/trips/${trip._id}/members`, {
+      const res = await fetch(`https://tripcircle-backend.onrender.com/api/trips/${trip._id}/members`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ adminId: user._id, newMemberEmail: inviteEmail })
@@ -145,7 +145,7 @@ const TripDetails = () => {
     e.preventDefault();
     if (!newItem.trim()) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/trips/${trip._id}/packing`, {
+      const res = await fetch(`https://tripcircle-backend.onrender.com/api/trips/${trip._id}/packing`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ item: newItem })
@@ -162,7 +162,7 @@ const TripDetails = () => {
 
   const handleTogglePackingItem = async (itemId) => {
     try {
-      const res = await fetch(`http://localhost:5000/api/trips/${trip._id}/packing/${itemId}`, {
+      const res = await fetch(`https://tripcircle-backend.onrender.com/api/trips/${trip._id}/packing/${itemId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: user._id }) 
@@ -184,7 +184,7 @@ const TripDetails = () => {
     formData.append("file", file);
     formData.append("userId", user._id);
     try {
-      const res = await fetch(`http://localhost:5000/api/trips/${trip._id}/vault`, { method: "POST", body: formData });
+      const res = await fetch(`https://tripcircle-backend.onrender.com/api/trips/${trip._id}/vault`, { method: "POST", body: formData });
       if (res.ok) {
         fetchTripData(); 
         if (socket) socket.emit("expense_added", trip._id); 
@@ -203,7 +203,7 @@ const TripDetails = () => {
   const handleDownloadReport = async () => {
     try {
       setIsDownloading(true);
-      const res = await fetch(`http://localhost:5000/api/trips/${trip._id}/download`);
+      const res = await fetch(`https://tripcircle-backend.onrender.com/api/trips/${trip._id}/download`);
       if (!res.ok) throw new Error("Failed to generate report");
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);

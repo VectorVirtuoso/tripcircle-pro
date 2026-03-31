@@ -24,7 +24,7 @@ const Auth = () => {
       const endpoint = isLogin ? "/api/users/login" : "/api/users/signup";
       const payload = isLogin ? { email, password } : { name, email, password };
 
-      const response = await fetch(`http://localhost:5000${endpoint}`, {
+      const response = await fetch(`https://tripcircle-backend.onrender.com${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)

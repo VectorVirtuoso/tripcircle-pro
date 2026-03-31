@@ -25,7 +25,7 @@ const Dashboard = () => {
   const fetchMyTrips = async () => {
     if (user?.email) {
       try {
-        const res = await fetch(`http://localhost:5000/api/trips/user/${user.email}`);
+        const res = await fetch(`https://tripcircle-backend.onrender.com/api/trips/user/${user.email}`);
         if (res.ok) {
           const data = await res.json();
           setTrips(data);

@@ -19,7 +19,7 @@ const NewTripModal = ({ isOpen, onClose, currentUser, onTripCreated }) => {
     const allMemberEmails = [currentUser.email, ...friendEmails];
 
     try {
-      const response = await fetch("http://localhost:5000/api/trips", {
+      const response = await fetch("https://tripcircle-backend.onrender.com/api/trips", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
