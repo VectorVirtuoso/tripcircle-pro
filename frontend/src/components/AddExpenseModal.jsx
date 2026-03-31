@@ -51,7 +51,7 @@ const AddExpenseModal = ({ isOpen, onClose, trip, onExpenseAdded, socket }) => {
       const mimeType = file.type;
 
       try {
-        const response = await fetch("http://localhost:5000/api/ai/scan", {
+        const response = await fetch("https://tripcircle-backend.onrender.com/api/ai/scan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ imageBase64: base64String, mimeType })
@@ -98,7 +98,7 @@ const AddExpenseModal = ({ isOpen, onClose, trip, onExpenseAdded, socket }) => {
     };
 
     try {
-      const response = await fetch("http://localhost:5000/api/expenses", {
+      const response = await fetch("https://tripcircle-backend.onrender.com/api/expenses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(expensePayload)
